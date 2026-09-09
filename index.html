@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<title>Party Bingo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span><span>Party Bingo</span></div>
+    <div class="topbar-actions">
+      <button class="btn btn-ghost" id="navRules">How to play</button>
+      <button class="btn btn-ghost" id="navHome">Home</button>
+    </div>
+  </div>
+
+  <!-- ============ HOME ============ -->
+  <section id="screen-home" class="screen active">
+    <div id="resumeBanner" class="field-group row" style="display:none;">
+      <div>
+        <strong>You have a game in progress.</strong>
+        <div class="muted">Pick up where you left off, or start fresh.</div>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn btn-secondary" id="discardResumeBtn">Discard</button>
+      <button class="btn btn-primary" id="resumeBtn">Resume game</button>
+    </div>
+
+    <h1>Choose a game</h1>
+    <p class="muted">Pick a bingo game, then set it up for today's party.</p>
+    <div class="game-grid" id="gameList">
+      <div class="empty-state">Loading games…</div>
+    </div>
+  </section>
+
+  <!-- ============ RULES ============ -->
+  <section id="screen-rules" class="screen">
+    <h1>How to play</h1>
+    <ol class="rules-list">
+      <li>Pick a game, then set the grid size, winning pattern, and call speed.</li>
+      <li>Generate cards — each one gets its own card number.</li>
+      <li>Print the cards and hand one to each guest (or team, for the little ones).</li>
+      <li>Start the game. The tablet calls out items one at a time.</li>
+      <li>Guests mark their card as items get called. When someone shouts "Bingo!", enter their card number on the tablet to confirm it.</li>
+      <li>A card wins on any row, column, or diagonal — or a full black-out — depending on what the host chose at setup.</li>
+    </ol>
+    <button class="btn btn-secondary" id="backFromRules">Back</button>
+  </section>
+
+  <!-- ============ SETUP ============ -->
+  <section id="screen-setup" class="screen">
+    <h1 id="setupTitle">Game setup</h1>
+    <p class="muted" id="setupDescription"></p>
+
+    <div class="field-group">
+      <span class="label">Card grid size</span>
+      <div class="option-row" id="gridOptions">
+        <label class="option-pill checked">
+          <input type="radio" name="gridSize" value="5" checked> 5 × 5 (with FREE center)
+        </label>
+        <label class="option-pill">
+          <input type="radio" name="gridSize" value="4"> 4 × 4 (simpler)
+        </label>
+      </div>
+      <div class="muted" id="poolWarning" style="display:none; margin-top:10px;"></div>
+    </div>
+
+    <div class="field-group">
+      <span class="label">Winning pattern</span>
+      <div class="option-row" id="patternOptions">
+        <label class="option-pill checked">
+          <input type="radio" name="pattern" value="line" checked> Any row, column, or diagonal
+        </label>
+        <label class="option-pill">
+          <input type="radio" name="pattern" value="blackout"> Full card (blackout)
+        </label>
+      </div>
+    </div>
+
+    <div class="field-group">
+      <span class="label">Calling speed</span>
+      <div class="option-row" id="callModeOptions">
+        <label class="option-pill checked">
+          <input type="radio" name="callMode" value="manual" checked> Manual — I'll tap "next"
+        </label>
+        <label class="option-pill">
+          <input type="radio" name="callMode" value="auto"> Auto-call on a timer
+        </label>
+      </div>
+      <div class="number-input" id="timerRow" style="display:none; margin-top:12px;">
+        <label for="timerSeconds">Seconds between calls</label>
+        <input type="number" id="timerSeconds" min="5" max="120" value="12">
+      </div>
+    </div>
+
+    <div class="field-group">
+      <span class="label">How many cards to print</span>
+      <div class="number-input">
+        <input type="number" id="cardCount" min="1" max="200" value="20">
+        <span class="muted">one per guest is usually enough</span>
+      </div>
+    </div>
+
+    <div class="row">
+      <button class="btn btn-secondary" id="backFromSetup">Back</button>
+      <div class="spacer"></div>
+      <button class="btn btn-primary" id="generateCardsBtn">Generate cards →</button>
+    </div>
+  </section>
+
+  <!-- ============ PRINT ============ -->
+  <section id="screen-print" class="screen">
+    <h1>Print your cards</h1>
+    <p class="muted">Print these now and hand them out before the game starts.</p>
+    <div class="row no-print">
+      <button class="btn btn-secondary" id="backToSetupFromPrint">← Change setup</button>
+      <div class="spacer"></div>
+      <button class="btn btn-mint" id="printBtn">🖨 Print cards</button>
+      <button class="btn btn-primary" id="startGameBtn">Start game →</button>
+    </div>
+    <div class="print-grid" id="printGrid"></div>
+  </section>
+
+  <!-- ============ PLAY ============ -->
+  <section id="screen-play" class="screen">
+    <div class="play-layout">
+      <div class="call-panel">
+        <div class="call-meta" id="callCount">0 called</div>
+        <div class="call-current display" id="currentCall">Tap "Call next item" to begin</div>
+        <div class="timer-ring" id="timerDisplay" style="display:none;"></div>
+        <div class="call-controls">
+          <button class="btn btn-primary" id="manualCallBtn">Call next item</button>
+          <button class="btn btn-mint" id="autoCallToggle" style="display:none;">⏸ Pause auto-call</button>
+          <button class="btn btn-coral" id="endGameBtn">End game</button>
+        </div>
+        <div class="called-history" id="calledHistory"></div>
+      </div>
+
+      <div class="side-panel">
+        <div class="panel-block">
+          <h3>Check a bingo</h3>
+          <div class="verify-row">
+            <input type="number" id="verifyInput" placeholder="Card #">
+            <button class="btn btn-primary" id="verifyBtn">Check</button>
+          </div>
+          <div class="result-banner" id="verifyResult" style="display:none;"></div>
+          <div class="verify-card-preview" id="verifyCardPreview"></div>
+        </div>
+
+        <div class="panel-block">
+          <h3>Party music</h3>
+          <button class="btn btn-secondary btn-block" id="chooseMusicBtn">🎵 Choose music files…</button>
+          <input type="file" id="musicFileInput" accept="audio/*" multiple style="display:none;">
+          <div class="music-track" id="musicCount">No music loaded</div>
+          <div class="music-track" id="nowPlaying"></div>
+          <div class="music-controls">
+            <button class="btn btn-secondary" id="musicPrev">⏮</button>
+            <button class="btn btn-secondary" id="musicPlayPause">⏯</button>
+            <button class="btn btn-secondary" id="musicNext">⏭</button>
+          </div>
+          <label class="row" style="margin-top:10px;">
+            <input type="checkbox" id="loopPlaylist" checked> Loop playlist
+          </label>
+          <audio id="audioPlayer" style="display:none;"></audio>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script src="js/app.js"></script>
+</body>
+</html>
