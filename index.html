@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
 <body>
 <div id="app">
@@ -71,15 +72,19 @@
     </div>
 
     <div class="field-group">
-      <span class="label">Winning pattern</span>
+      <span class="label">Winning format</span>
       <div class="option-row" id="patternOptions">
         <label class="option-pill checked">
-          <input type="radio" name="pattern" value="line" checked> Any row, column, or diagonal
+          <input type="radio" name="pattern" value="progressive" checked> Line, then Full House (two prizes)
         </label>
         <label class="option-pill">
-          <input type="radio" name="pattern" value="blackout"> Full card (blackout)
+          <input type="radio" name="pattern" value="line"> Single line only
+        </label>
+        <label class="option-pill">
+          <input type="radio" name="pattern" value="blackout"> Full card (blackout) only
         </label>
       </div>
+      <p class="muted" style="margin-top:10px;">With "Line, then Full House," the first line found locks in that prize — other cards can still have a line, but the game moves everyone toward Full House next.</p>
     </div>
 
     <div class="field-group">
@@ -120,9 +125,11 @@
     <div class="row no-print">
       <button class="btn btn-secondary" id="backToSetupFromPrint">← Change setup</button>
       <div class="spacer"></div>
-      <button class="btn btn-mint" id="printBtn">🖨 Print cards</button>
+      <button class="btn btn-secondary" id="downloadAllPdfBtn">⬇ Download all as PDF</button>
+      <button class="btn btn-mint" id="printBtn">🖨 Browser print</button>
       <button class="btn btn-primary" id="startGameBtn">Start game →</button>
     </div>
+    <p class="muted no-print">PDF download lays every card out cleanly across real pages — open the PDF in any viewer and print it however you like. Each card below also has its own "PDF" button if you'd rather export one at a time.</p>
     <div class="print-grid" id="printGrid"></div>
   </section>
 
@@ -142,6 +149,11 @@
       </div>
 
       <div class="side-panel">
+        <div class="panel-block">
+          <h3>🏆 Prizes claimed</h3>
+          <div id="winnersPanel" class="stack"><span class="muted">No prizes claimed yet.</span></div>
+        </div>
+
         <div class="panel-block">
           <h3>Check a bingo</h3>
           <div class="verify-row">
@@ -169,6 +181,17 @@
           <audio id="audioPlayer" style="display:none;"></audio>
         </div>
       </div>
+    </div>
+  </section>
+
+  <!-- ============ RESULTS ============ -->
+  <section id="screen-results" class="screen">
+    <h1>🎉 Results</h1>
+    <div id="resultsContent" class="stack"></div>
+    <div class="row" style="margin-top:20px;">
+      <button class="btn btn-secondary" id="backToGameBtn">↩ Back to game</button>
+      <div class="spacer"></div>
+      <button class="btn btn-primary" id="finishHomeBtn">Finish &amp; go home</button>
     </div>
   </section>
 

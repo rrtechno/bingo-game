@@ -224,12 +224,13 @@ function createSession() {
     gameId: game.id,
     gameTitle: game.title,
     gridSize,
-    pattern,
+    pattern, // 'line' | 'blackout' | 'progressive'
     callMode,
     timerSeconds,
     cards,
     callPool,
     calledItems: [],
+    winners: [], // {stage: 'line'|'blackout', cardNumber, detail, callsAtWin}
     autoRunning: false,
     createdAt: Date.now()
   };
@@ -265,11 +266,11 @@ function renderPrintScreen() {
   const { cards, gridSize, gameTitle } = state.session;
   const grid = $('#printGrid');
   grid.style.setProperty('--cols', gridSize);
-  grid.innerHTML = cards.map((card) => renderCardHtml(card, gridSize, gameTitle, [])).join('');
+  grid.innerHTML = cards.map((card) => renderCardHtml(card, gridSize, gameTitle, [], true)).join('');
   showScreen('screen-print');
 }
 
-function renderCardHtml(card, gridSize, gameTitle, calledItems) {
+function renderCardHtml(card, gridSize, gameTitle, calledItems, withPdfBtn = false) {
   const cells = card.grid.map((cell) => {
     const marked = !cell.free && calledItems.includes(cell.text);
     const cls = ['bingo-cell', cell.free ? 'free' : '', marked ? 'marked' : ''].filter(Boolean).join(' ');
@@ -281,11 +282,89 @@ function renderCardHtml(card, gridSize, gameTitle, calledItems) {
         <span class="card-title">${escapeHtml(gameTitle)}</span>
         <span class="card-number">Card #${card.number}</span>
       </div>
+      ${withPdfBtn ? `<button class="btn btn-secondary btn-mini no-print" data-pdf-card="${card.number}">⬇ PDF</button>` : ''}
       <div class="bingo-grid" style="grid-template-columns: repeat(${gridSize}, 1fr);">
         ${cells}
       </div>
     </div>
   `;
+}
+
+/* ============================================================
+   PDF export (jsPDF) — bypasses the browser print dialog so
+   every card lays out cleanly across real, paginated pages.
+   ============================================================ */
+function slugify(str) {
+  return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'bingo';
+}
+
+function buildCardsPdf(cards, gridSize, gameTitle) {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const margin = 15;
+  const gridMm = Math.min(pageW, pageH) - margin * 2 - 20;
+
+  cards.forEach((card, idx) => {
+    if (idx > 0) doc.addPage();
+    drawCardOnDoc(doc, card, gridSize, gameTitle, pageW, margin, gridMm);
+  });
+  return doc;
+}
+
+function drawCardOnDoc(doc, card, gridSize, gameTitle, pageW, margin, gridMm) {
+  doc.setTextColor(30, 30, 30);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(18);
+  doc.text(gameTitle, margin, margin + 5);
+  doc.setFontSize(14);
+  doc.text(`Card #${card.number}`, pageW - margin, margin + 5, { align: 'right' });
+
+  const startY = margin + 14;
+  const cell = gridMm / gridSize;
+
+  for (let r = 0; r < gridSize; r++) {
+    for (let c = 0; c < gridSize; c++) {
+      const idx = r * gridSize + c;
+      const cellData = card.grid[idx];
+      const x = margin + c * cell;
+      const y = startY + r * cell;
+
+      if (cellData.free) {
+        doc.setFillColor(245, 166, 35);
+        doc.setDrawColor(180, 180, 180);
+        doc.rect(x, y, cell, cell, 'FD');
+        doc.setTextColor(36, 21, 54);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        doc.text('FREE', x + cell / 2, y + cell / 2, { align: 'center', baseline: 'middle' });
+      } else {
+        doc.setFillColor(255, 255, 255);
+        doc.setDrawColor(180, 180, 180);
+        doc.rect(x, y, cell, cell, 'FD');
+        doc.setTextColor(30, 30, 30);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        const lines = doc.splitTextToSize(cellData.text, cell - 4);
+        doc.text(lines, x + cell / 2, y + cell / 2, { align: 'center', baseline: 'middle' });
+      }
+    }
+  }
+}
+
+function downloadAllCardsPdf() {
+  const { gameTitle, gridSize, cards } = state.session;
+  const doc = buildCardsPdf(cards, gridSize, gameTitle);
+  doc.save(`${slugify(gameTitle)}-bingo-cards.pdf`);
+}
+
+function downloadSingleCardPdf(cardNumber) {
+  const { gameTitle, gridSize, cards } = state.session;
+  const card = cards.find((c) => c.number === cardNumber);
+  if (!card) return;
+  const doc = buildCardsPdf([card], gridSize, gameTitle);
+  doc.save(`bingo-card-${cardNumber}.pdf`);
 }
 
 /* ============================================================
@@ -299,6 +378,7 @@ function enterPlayScreen() {
   autoTimerHandle = null;
   renderCalledHistory();
   renderCurrentCall();
+  renderWinnersPanel();
   updateCallModeUI();
   showScreen('screen-play');
 }
@@ -373,25 +453,38 @@ function updateTimerDisplay() {
 /* ============================================================
    Verify a card
    ============================================================ */
-function checkPatternWin(card, calledItems, pattern, gridSize) {
-  const marks = card.grid.map((cell) => cell.free || calledItems.includes(cell.text));
-
-  if (pattern === 'blackout') {
-    return { won: marks.every(Boolean), line: marks.every(Boolean) ? 'all' : null };
-  }
-
-  // line: any row, column, or diagonal
+function lineDetails(marks, gridSize) {
   const at = (r, c) => marks[r * gridSize + c];
   for (let r = 0; r < gridSize; r++) {
-    if ([...Array(gridSize)].every((_, c) => at(r, c))) return { won: true, line: `row-${r}` };
+    if ([...Array(gridSize)].every((_, c) => at(r, c))) return { hasLine: true, label: `Row ${r + 1}` };
   }
   for (let c = 0; c < gridSize; c++) {
-    if ([...Array(gridSize)].every((_, r) => at(r, c))) return { won: true, line: `col-${c}` };
+    if ([...Array(gridSize)].every((_, r) => at(r, c))) return { hasLine: true, label: `Column ${c + 1}` };
   }
-  if ([...Array(gridSize)].every((_, i) => at(i, i))) return { won: true, line: 'diag-1' };
-  if ([...Array(gridSize)].every((_, i) => at(i, gridSize - 1 - i))) return { won: true, line: 'diag-2' };
+  if ([...Array(gridSize)].every((_, i) => at(i, i))) return { hasLine: true, label: 'Diagonal' };
+  if ([...Array(gridSize)].every((_, i) => at(i, gridSize - 1 - i))) return { hasLine: true, label: 'Diagonal' };
+  return { hasLine: false, label: null };
+}
 
-  return { won: false, line: null };
+function evaluateCard(card, calledItems, gridSize) {
+  const marks = card.grid.map((cell) => cell.free || calledItems.includes(cell.text));
+  const { hasLine, label } = lineDetails(marks, gridSize);
+  return { hasLine, lineLabel: label, hasBlackout: marks.every(Boolean) };
+}
+
+function getStageWinner(stage) {
+  return state.session.winners.find((w) => w.stage === stage);
+}
+
+function recordWinner(stage, cardNumber, detail) {
+  state.session.winners.push({
+    stage,
+    cardNumber,
+    detail: detail || null,
+    callsAtWin: state.session.calledItems.length
+  });
+  saveSession();
+  renderWinnersPanel();
 }
 
 function verifyCardNumber() {
@@ -401,21 +494,104 @@ function verifyCardNumber() {
   const card = state.session.cards.find((c) => c.number === num);
 
   if (!card) {
+    resultBox.style.display = 'block';
     resultBox.className = 'result-banner lose';
     resultBox.textContent = `No card #${num} in this game.`;
-    resultBox.style.display = 'block';
     preview.innerHTML = '';
     return;
   }
 
-  const { won } = checkPatternWin(card, state.session.calledItems, state.session.pattern, state.session.gridSize);
-  resultBox.style.display = 'block';
-  resultBox.className = `result-banner ${won ? 'win' : 'lose'}`;
-  resultBox.textContent = won
-    ? `🎉 BINGO confirmed on card #${num}!`
-    : `Not yet — card #${num} doesn't have a ${state.session.pattern === 'blackout' ? 'full card' : 'line'} yet.`;
+  const { hasLine, lineLabel, hasBlackout } = evaluateCard(card, state.session.calledItems, state.session.gridSize);
+  const format = state.session.pattern;
+  const lineWinner = getStageWinner('line');
+  const houseWinner = getStageWinner('blackout');
+  let message = '';
+  let cls = 'info';
 
+  if (format === 'blackout') {
+    if (hasBlackout) {
+      if (!houseWinner) {
+        recordWinner('blackout', num);
+        message = `🏆 FULL HOUSE! Card #${num} wins!`;
+        cls = 'win';
+      } else {
+        message = `Full house was already won by Card #${houseWinner.cardNumber}.`;
+      }
+    } else {
+      message = 'Not a full house yet.';
+    }
+  } else if (format === 'line') {
+    if (hasLine) {
+      if (!lineWinner) {
+        recordWinner('line', num, lineLabel);
+        message = `🏆 BINGO! Card #${num} wins with ${lineLabel}!`;
+        cls = 'win';
+      } else {
+        message = `That prize was already won by Card #${lineWinner.cardNumber}.`;
+      }
+    } else {
+      message = 'No completed line yet.';
+    }
+  } else {
+    // progressive: line prize, then full house
+    if (houseWinner) {
+      message = `Both prizes are already claimed — Line: Card #${lineWinner ? lineWinner.cardNumber : '—'}, Full house: Card #${houseWinner.cardNumber}.`;
+    } else if (hasBlackout) {
+      if (!lineWinner) recordWinner('line', num, lineLabel || 'via full house');
+      recordWinner('blackout', num);
+      message = `🏆 FULL HOUSE! Card #${num} takes the grand prize!`;
+      cls = 'win';
+    } else if (hasLine) {
+      if (!lineWinner) {
+        recordWinner('line', num, lineLabel);
+        message = `🎉 LINE! Card #${num} wins the line prize (${lineLabel}). Keep playing for Full House!`;
+        cls = 'win';
+      } else {
+        message = `Card #${num} has a line too, but that prize already went to Card #${lineWinner.cardNumber}. Still in it for Full House!`;
+      }
+    } else {
+      message = 'Not a winner yet.';
+    }
+  }
+
+  resultBox.style.display = 'block';
+  resultBox.className = `result-banner ${cls}`;
+  resultBox.textContent = message;
   preview.innerHTML = renderCardHtml(card, state.session.gridSize, state.session.gameTitle, state.session.calledItems);
+}
+
+function renderWinnersPanel() {
+  const el = $('#winnersPanel');
+  const winners = state.session.winners;
+  if (!winners.length) {
+    el.innerHTML = `<span class="muted">No prizes claimed yet.</span>`;
+    return;
+  }
+  el.innerHTML = winners.map((w) => `
+    <div class="winner-item">
+      <div class="stage-label">${w.stage === 'line' ? '🎉 Line prize' : '🏆 Full house'}</div>
+      <div class="winner-card">Card #${w.cardNumber}</div>
+      ${w.detail ? `<div class="muted">${escapeHtml(w.detail)}</div>` : ''}
+      <div class="muted">after ${w.callsAtWin} calls</div>
+    </div>
+  `).join('');
+}
+
+function renderResultsScreen() {
+  const el = $('#resultsContent');
+  const winners = state.session.winners;
+  if (!winners.length) {
+    el.innerHTML = `<p class="muted">No bingo was confirmed this game.</p>`;
+    return;
+  }
+  el.innerHTML = winners.map((w) => `
+    <div class="field-group">
+      <div class="label">${w.stage === 'line' ? '🎉 Line winner' : '🏆 Full house winner'}</div>
+      <div style="font-size:1.6rem; font-weight:800;">Card #${w.cardNumber}</div>
+      ${w.detail ? `<div class="muted">${escapeHtml(w.detail)}</div>` : ''}
+      <div class="muted">after ${w.callsAtWin} calls</div>
+    </div>
+  `).join('');
 }
 
 /* ============================================================
@@ -494,6 +670,11 @@ function init() {
   $('#backToSetupFromPrint').addEventListener('click', () => showScreen('screen-setup'));
   $('#printBtn').addEventListener('click', () => window.print());
   $('#startGameBtn').addEventListener('click', enterPlayScreen);
+  $('#downloadAllPdfBtn').addEventListener('click', downloadAllCardsPdf);
+  $('#printGrid').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-pdf-card]');
+    if (btn) downloadSingleCardPdf(parseInt(btn.dataset.pdfCard, 10));
+  });
 
   $('#manualCallBtn').addEventListener('click', callNext);
   $('#autoCallToggle').addEventListener('click', () => {
@@ -506,9 +687,16 @@ function init() {
   });
 
   $('#endGameBtn').addEventListener('click', () => {
-    if (confirm('End this game? Card numbers and the call history will be cleared.')) {
+    stopAutoCall();
+    renderResultsScreen();
+    showScreen('screen-results');
+  });
+
+  $('#backToGameBtn').addEventListener('click', enterPlayScreen);
+
+  $('#finishHomeBtn').addEventListener('click', () => {
+    if (confirm('Start fresh? This clears the card numbers and call history.')) {
       clearSession();
-      stopAutoCall();
       showScreen('screen-home');
     }
   });
